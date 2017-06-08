@@ -1,0 +1,304 @@
+package jr
+
+import (
+    // "google.golang.org/appengine"
+    "google.golang.org/appengine/datastore"
+    "strconv"
+    // "reflect"
+    // "golang.org/x/net/context"
+)
+
+/*
+Note ko xoa
+Tai sao DO lai la &data con interface thi khong co vi interface la object
+*/
+type Datastore struct {
+    ctx *Context
+}
+
+// var CX *Context
+
+type DO map[string]interface{}
+/*
+func (d *DO) Load(ch <-chan datastore.Property) error {
+    // Note: you might want to clear current values from the map or create a new map
+    for p := range ch { // Read until channel is closed
+        (*d)[p.Name] = p.Value
+    }
+    return nil
+}
+
+func (d *DO) Save(ch chan<- datastore.Property) error {
+    defer close(ch) // Channel must be closed
+    for k, v := range *d {
+        ch <- datastore.Property{Name: k, Value: v}
+    }
+    return nil
+}
+*/
+func (d *DO) Load(p []datastore.Property) error {
+    // Note: you might want to clear current values from the map or create a new map
+    // CX.Log.Print("CX Load", p)
+
+    for i := range p { // Read until channel is closed
+        // CX.Log.Print("CX Load a", p[i].Value)
+        (*d)[p[i].Name] = p[i].Value
+    }
+    return nil
+    /*
+    x := *d
+    for _, p := range ch {
+        if reflect.TypeOf(p.Value) == reflect.TypeOf(datastore.indexValue{}) && reflect.ValueOf(p.Value).Kind() == reflect.Struct {
+            y := p.Value.(datastore.IndexValue).Value
+            switch {
+            case y.Int64Value != nil:
+                x[p.Name] = y.GetInt64Value()
+            case y.Pointvalue != nil:
+                point := y.GetPointvalue()
+                x[p.Name] = appengine.GeoPoint{Lat: point.GetX(), Lng: point.GetY()}
+            case y.StringValue != nil:
+                x[p.Name] = y.GetStringValue()
+            case y.BooleanValue != nil:
+                x[p.Name] = y.GetBooleanValue()
+            case y.DoubleValue != nil:
+                x[p.Name] = y.GetDoubleValue()
+            }
+        } else {
+            x[p.Name] = p.Value
+        }
+    }
+    return nil
+    */
+}
+
+func (d *DO) Save() ([]datastore.Property, error) {
+    a := make([]datastore.Property, 0)
+    // CX.Log.Print("CX Save", d)
+    for k, v := range *d {
+        a = append(a, datastore.Property{Name: k, Value: v})
+    }
+    return a, nil
+}
+
+/*
+func (l *PropertyList) Load(p []Property) error {
+    *l = append(*l, p...)
+    return nil
+}
+
+// Save saves all of l's properties as a slice or Properties.
+func (l *PropertyList) Save() ([]Property, error) {
+    return *l, nil
+}
+*/
+
+func newDatastore(ctx *Context) *Datastore {
+    d := new(Datastore)
+    d.ctx = ctx
+    // CX = ctx
+    return d
+}
+
+func (d *Datastore) Get(name string, id string) (DO) {
+    key := new(datastore.Key)
+    rs := make(DO) // DO is not a struct, it is a map
+    rs["$id"] = id
+    rs["$key"] = key.Encode()
+    if intID, err := strconv.Atoi(id); err == nil {
+        key = datastore.NewKey(d.ctx.ctx, name, "", int64(intID), nil)
+    } else {
+        key = datastore.NewKey(d.ctx.ctx, name, id, 0, nil)
+    }
+    if err := datastore.Get(d.ctx.ctx, key, &rs); err != nil {
+        d.ctx.Log.Error("DATASTORE %v", err)
+    }
+    return rs
+}
+
+func (d *Datastore) GetAll(q *datastore.Query) ([]DO) {
+    rs := make([]DO, 0)
+    keys, err := q.GetAll(d.ctx.ctx, &rs)
+    if err != nil {
+        d.ctx.Log.Error("DATASTORE %v", err)
+    }
+    // d.ctx.Log.Print("rs", rs)
+    for i := 0; i < len(rs); i++ {
+        rs[i]["$key"] = keys[i].Encode()
+        rs[i]["$id"] = keys[i].IntID()
+        if rs[i]["$id"].(int64) == 0 {
+            rs[i]["$id"] = keys[i].StringID()
+        // } else {
+            // rs[i]["_id"] = strconv.FormatInt(rs[i]["_id"], 10)
+        }
+    }
+    return rs
+}
+
+func (d *Datastore) GetByKey(name string, keystring string) (DO) {
+    // key := new(datastore.Key)
+    rs := make(DO) // DO is not a struct, it is a map
+    // rs["$id"] = id
+    key, err := d.DecodeKey(keystring)
+    if err != nil {
+        return rs
+    }
+    // if intID, err := strconv.Atoi(id); err == nil {
+        // key = datastore.NewKey(d.ctx.ctx, name, "", int64(intID), nil)
+    // } else {
+        // key = datastore.NewKey(d.ctx.ctx, name, id, 0, nil)
+    // }
+    if err := datastore.Get(d.ctx.ctx, key, &rs); err != nil {
+        d.ctx.Log.Error("DATASTORE %v", err)
+    } else {
+        rs["$key"] = keystring
+    }
+    return rs
+}
+
+func (d *Datastore) GetKeysOnly(q *datastore.Query) ([]DO) {
+    rs := make([]DO, 0)
+    keys, err := q.GetAll(d.ctx.ctx, nil)
+    if err != nil {
+        d.ctx.Log.Error("DATASTORE %v", err)
+    }
+    for i := 0; i < len(keys); i++ {
+        rs = append(rs, DO{})
+        rs[i]["$key"] = keys[i].Encode()
+        rs[i]["$id"] = keys[i].IntID()
+        if rs[i]["$id"].(int64) == 0 {
+            rs[i]["$id"] = keys[i].StringID()
+        }
+    }
+    return rs
+}
+
+func (d *Datastore) GetO(name string, id string, rs interface{}) {
+    key := new(datastore.Key)
+    if intID, err := strconv.Atoi(id); err == nil {
+        key = datastore.NewKey(d.ctx.ctx, name, "", int64(intID), nil)
+    } else {
+        key = datastore.NewKey(d.ctx.ctx, name, id, 0, nil)
+    }
+    if err := datastore.Get(d.ctx.ctx, key, &rs); err != nil {
+        d.ctx.Log.Error("DATASTORE %v", err)
+    }
+}
+
+func (d *Datastore) GetAllO(q *datastore.Query, rs interface{}) {
+    _, err := q.GetAll(d.ctx.ctx, &rs)
+    if err != nil {
+        d.ctx.Log.Error("DATASTORE GETALLO %v", err)
+    }
+}
+
+func (d *Datastore) Put(kind string, data DO) {
+    k := datastore.NewIncompleteKey(d.ctx.ctx, kind, nil)
+    key, err := datastore.Put(d.ctx.ctx, k, &data)
+    d.ctx.Log.Info("%v %v", key, err)
+    data["$key"] = key
+    // data["_id"] = strconv.FormatInt(key.IntID(), 10)
+}
+
+type PageO struct {
+    Name string
+    Content string
+    Status bool
+    // LastEdited time.Time
+}
+
+func (d *Datastore) PutA() {
+    page := PageO{}
+    page.Name = "abc"
+    page.Content = ""
+    page.Status = true
+
+    k := datastore.NewIncompleteKey(d.ctx.ctx, "PageO", nil)
+    _, err := datastore.Put(d.ctx.ctx, k, &page)
+    if err != nil {
+        d.ctx.Log.Error("DATASTORE PUTA %v", err)
+    }
+}
+
+func (d *Datastore) GetA() []PageO {
+    rs := make([]PageO, 0)
+
+    q := datastore.NewQuery("PageO").Project("Name")
+    _, err := q.GetAll(d.ctx.ctx, &rs)
+    if err != nil {
+        d.ctx.Log.Error("DATASTORE GETA %v", err)
+    }
+    // d.ctx.Log.Error("DATASTORE GETA %v", rs)
+    return rs
+}
+
+func (d *Datastore) PutO(kind string, data interface{}) {
+    k := datastore.NewIncompleteKey(d.ctx.ctx, kind, nil)
+    _, err := datastore.Put(d.ctx.ctx, k, &data)
+    if err != nil {
+        d.ctx.Log.Error("DATASTORE PUTO %v", err)
+    }
+    //
+    // d.ctx.Log.Info("%v %v", key, err)
+    // data["$key"] = key
+    // data["_id"] = strconv.FormatInt(key.IntID(), 10)
+}
+
+func (d *Datastore) PutOWithKey(key *datastore.Key, data interface{}) {
+    if _, err := datastore.Put(d.ctx.ctx, key, data); err != nil {
+        d.ctx.Log.Error("DATASTORE %v", err)
+    }
+}
+
+func (d *Datastore) PutWithId(kind string, id string, data DO) {
+    key := datastore.NewKey(d.ctx.ctx, kind, id, 0, nil)
+    if _, err := datastore.Put(d.ctx.ctx, key, &data); err != nil {
+        d.ctx.Log.Error("DATASTORE %v", err)
+    }
+    data["$key"] = key
+}
+
+func (d *Datastore) PutWithIntId(kind string, id int, data DO) {
+    key := datastore.NewKey(d.ctx.ctx, kind, "", int64(id), nil)
+    if _, err := datastore.Put(d.ctx.ctx, key, &data); err != nil {
+        d.ctx.Log.Error("DATASTORE %v", err)
+    }
+    data["$key"] = key
+}
+
+func (d *Datastore) PutWithKey(key *datastore.Key, data DO) *datastore.Key {
+    if _, err := datastore.Put(d.ctx.ctx, key, &data); err != nil {
+        d.ctx.Log.Error("DATASTORE %v", err)
+    }
+    data["$key"] = key
+    return key
+}
+
+func (d *Datastore) NewKey(kind, id string, parent *datastore.Key) *datastore.Key {
+    var key *datastore.Key
+    if intID, err := strconv.Atoi(id); err == nil {
+        key = datastore.NewKey(d.ctx.ctx, kind, "", int64(intID), parent)
+    } else {
+        key = datastore.NewKey(d.ctx.ctx, kind, id, 0, parent)
+    }
+    // key := datastore.NewKey(d.ctx.ctx, kind, stringID, int64(intID), parent)
+    return key
+}
+func (d *Datastore) NewIncompleteKey(kind string) *datastore.Key {
+    key := datastore.NewIncompleteKey(d.ctx.ctx, kind, nil)
+    return key
+}
+
+func (d *Datastore) Delete(name string, id string) {
+    key := datastore.NewKey(d.ctx.ctx, name, id, 0, nil)
+    if err := datastore.Delete(d.ctx.ctx, key); err != nil {
+        d.ctx.Log.Error("DATASTORE %v", err)
+    }
+}
+
+func (d *Datastore) Query(name string) *datastore.Query {
+    return datastore.NewQuery(name)
+}
+
+func (d *Datastore) DecodeKey(encoded string) (*datastore.Key, error) {
+    return datastore.DecodeKey(encoded)
+}

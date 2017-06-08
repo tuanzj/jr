@@ -1,0 +1,75 @@
+package jr
+
+import (
+    "google.golang.org/appengine/log"
+    alog "log"
+    "os"
+)
+
+type Log struct {
+    ctx *Context
+}
+
+func newLog(ctx *Context) *Log {
+    l := new(Log)
+    l.ctx = ctx
+    return l
+}
+
+func (l *Log) alogPrint(txt string, args ...interface{}) {
+    if l.ctx.config.LogFile != "" {
+        f, err := os.OpenFile(l.ctx.config.LogFile, os.O_RDWR | os.O_CREATE | os.O_APPEND, 0666)
+        if err != nil {
+        }
+        defer f.Close()
+        alog.SetOutput(f)
+    }
+    alog.Printf(txt, args...)
+}
+func (l *Log) Print(txt string, arg interface{}) {
+    if l.ctx.isGAE() {
+        log.Infof(l.ctx.ctx, "JB ["+txt+"] : %v", arg)
+    } else {
+        l.alogPrint("JB ["+txt+"] : %v", arg)
+    }
+}
+
+func (l *Log) Info(txt string, args ...interface{}) {
+    if l.ctx.isGAE() {
+        log.Infof(l.ctx.ctx, txt, args...)
+    } else {
+        l.alogPrint("[INFO]" + txt, args...)
+    }
+}
+
+func (l *Log) Error(txt string, args ...interface{}) {
+    if l.ctx.isGAE() {
+        log.Errorf(l.ctx.ctx, txt, args...)
+    } else {
+        l.alogPrint("[ERROR]" + txt, args...)
+    }
+}
+
+func (l *Log) Warning(txt string, args ...interface{}) {
+    if l.ctx.isGAE() {
+        log.Warningf(l.ctx.ctx, txt, args...)
+    } else {
+        l.alogPrint("[WARNING]" + txt, args...)
+    }
+}
+
+func (l *Log) Debug(txt string, args ...interface{}) {
+    if l.ctx.isGAE() {
+        log.Debugf(l.ctx.ctx, txt, args...)
+    } else {
+        l.alogPrint("[DEBUG]" + txt, args...)
+    }
+}
+
+func (l * Log) Critical(txt string, args ...interface{}) {
+    if l.ctx.isGAE() {
+        log.Criticalf(l.ctx.ctx, txt, args...)
+    } else {
+        l.alogPrint("[CRITICAL]" + txt, args...)
+    }
+}

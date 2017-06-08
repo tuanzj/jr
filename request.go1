@@ -1,0 +1,30 @@
+package jr
+
+import (
+	// "fmt"
+	"net/http"
+	"strings"
+)
+
+
+/*
+package main
+
+
+func main() {
+	reader := strings.NewReader(`{"body":123}`)
+	request, err := http.NewRequest("GET", "http://vnexpress.net/", reader)
+	// TODO: check err
+	if err != nil {
+		fmt.Println(err)
+	} else {
+		client := &http.Client{}
+		resp, err := client.Do(request)
+		if err != nil {
+			fmt.Println(err)
+		} else {
+			fmt.Println(resp)
+		}
+	}
+}
+*/

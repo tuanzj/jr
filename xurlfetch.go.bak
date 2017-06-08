@@ -1,0 +1,197 @@
+package jr
+
+import (
+	"crypto/tls"
+	"encoding/json"
+	"errors"
+	"io/ioutil"
+	"net/http"
+	"net/url"
+	"strings"
+)
+
+type XURLFetch struct {
+	ctx *Context
+}
+
+func (uf *XURLFetch) getCLient() *http.Client {
+	client := &http.Client{
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: uf.ctx.config.DevENV},
+		},
+	}
+	return client
+}
+
+func (uf *XURLFetch) encode(parameters map[string]string) string {
+	if len(parameters) == 0 {
+		return ""
+	}
+	params := url.Values{}
+	for k, v := range parameters {
+		params.Add(k, v)
+	}
+	return params.Encode()
+}
+
+func (uf *XURLFetch) Do(method, urlString, query string, headers ...map[string]string)  (string, error) {
+	data := ""
+	if method == http.MethodGet {
+		urlString += "?" + query
+	} else if  == http.MethodPost {
+		data = query
+	}
+
+	reader := strings.NewReader(data)
+
+	request, err := http.NewRequest(http.MethodGet, urlString, reader)
+	if err != nil {
+		return "", err
+	}
+
+	for i := 0; i < len(headers); i++ {
+		for k, v := range headers[i] {
+			request.Header.Add(k, v)
+		}
+	}
+
+	client := uf.getCLient()
+
+	response, err := client.Do(request)
+	if err != nil {
+		return "", err
+	}
+	defer response.Body.Close()
+
+	if response.StatusCode != http.StatusOK {
+		return "", errors.New("")
+	}
+
+	bodyResp, err := ioutil.ReadAll(response.Body)
+	if err != nil {
+		return "", err
+	}
+
+	return string(bodyResp[:]), nil
+
+}
+
+func (uf *XURLFetch) Get(urlString string, query map[string]string, headers ...map[string]string) (string, error) {
+
+
+	queryString := uf.encode(query)
+
+	return uf.Do(http.MethodGet, urlString, queryString, headers...)
+
+
+	reader := strings.NewReader("")
+
+	queryString := uf.encode(query)
+	if queryString != "" {
+		urlString += "?" + queryString
+	}
+
+	request, err := http.NewRequest(http.MethodGet, urlString, reader)
+	if err != nil {
+		return "", err
+	}
+
+	for i := 0; i < len(headers); i++ {
+		for k, v := range headers[i] {
+			request.Header.Add(k, v)
+		}
+	}
+
+	client := uf.getCLient()
+
+	resp, err := client.Do(request)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	bodyResp, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return "", err
+	}
+	return string(bodyResp[:]), nil
+}
+
+func (uf *XURLFetch) Post(urlString string, data map[string]string, headers ...map[string]string) (string, error) {
+
+	reader := strings.NewReader(uf.encode(data))
+
+	request, err := http.NewRequest(http.MethodPost, urlString, reader)
+	if err != nil {
+		return "", err
+	}
+
+	for i := 0; i < len(headers); i++ {
+		for k, v := range headers[i] {
+			request.Header.Add(k, v)
+		}
+	}
+
+	client := uf.getCLient()
+
+	response, err := client.Do(request)
+	if err != nil {
+		return "", err
+	}
+	defer response.Body.Close()
+
+	if response.StatusCode != http.StatusOK {
+		return "", errors.New("")
+	}
+	bodyResp, err := ioutil.ReadAll(response.Body)
+	if err != nil {
+		return "", err
+	}
+	return string(bodyResp[:]), nil
+}
+
+func (uf *XURLFetch) PostJSON(urlString string, data map[string]string, headers ...map[string]string) (string, error) {
+
+	jsonData, err := json.Marshal(data)
+	if err != nil {
+		return "", err
+	}
+	reader := strings.NewReader(string(jsonData))
+
+	request, err := http.NewRequest(http.MethodPost, urlString, reader)
+	if err != nil {
+		return "", err
+	}
+
+	request.Header.Add("Cache-Control", "max-age=0, must-revalidate")
+	request.Header.Add("Content-Type", "application/json")
+
+	for i := 0; i < len(headers); i++ {
+		for k, v := range headers[i] {
+			request.Header.Add(k, v)
+		}
+	}
+
+	client := uf.getCLient()
+
+	resp, err := client.Do(request)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	bodyResp, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return "", err
+	}
+	return string(bodyResp[:]), nil
+}
+
+func (uf *XURLFetch) URLString(urlString string, parameters map[string]string) string {
+	params := url.Values{}
+	for k, v := range parameters {
+		params.Add(k, v)
+	}
+	urlString += "?" + params.Encode()
+	return urlString
+}

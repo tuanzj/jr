@@ -1,0 +1,68 @@
+package jr
+
+import (
+    "google.golang.org/appengine/memcache"
+    "encoding/json"
+    "time"
+    amemcache "github.com/bradfitz/gomemcache/memcache"
+)
+
+type Memcache struct {
+    ctx *Context
+    mc *amemcache.Client
+}
+
+func newMemcache(ctx *Context) *Memcache {
+    m := new(Memcache)
+    m.ctx = ctx
+    if !m.ctx.isGAE() {
+        if m.isUseMemcahe() {
+            m.mc = amemcache.New(ctx.config.MemcacheHost)
+        }
+    }
+    return m
+}
+
+func (m *Memcache) isUseMemcahe() bool {
+    return m.ctx.config.MemcacheHost != ""
+}
+
+func (m *Memcache) Set(name string, value interface{}, expire int) error {
+    v, _ := json.Marshal(value)
+    if m.ctx.isGAE() {
+        item := &memcache.Item{
+            Key:   name,
+            Value: v,
+            Expiration: time.Duration(expire) * time.Second,
+        }
+        m.ctx.Log.Info("memcache [%v] added", item.Key)
+        memcache.Set(m.ctx.ctx, item)
+    } else if m.isUseMemcahe() {
+        m.mc.Set(&amemcache.Item{Key: name, Value: []byte(v), Expiration: int32(expire) })
+    }
+    return nil
+}
+
+func (m *Memcache) Get(name string, rs interface{}) error {
+    if m.ctx.isGAE() {
+        item, err := memcache.Get(m.ctx.ctx, name)
+        if err == memcache.ErrCacheMiss {
+            return err
+            m.ctx.Log.Error("MEMCACHE: item [%v] not in the cache", name)
+        } else if err != nil {
+            return err
+            m.ctx.Log.Error("MEMCACHE: item [%v] error - %v", name, err)
+        } else {
+            json.Unmarshal(item.Value, rs)
+        }
+    } else if m.isUseMemcahe() {
+        item, err := m.mc.Get(name)
+        if err != nil {
+            return err
+            m.ctx.Log.Error("MEMCACHE: item [%v] error - %v", name, err)
+        } else {
+            json.Unmarshal(item.Value, rs)
+        }
+    }
+    return nil
+}

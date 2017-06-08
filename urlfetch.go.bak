@@ -1,0 +1,127 @@
+package jr
+
+import (
+	// "fmt"
+	"net/http"
+	"strings"
+	"io/ioutil"
+	"google.golang.org/appengine/urlfetch"
+)
+
+type URLFetch struct {
+    ctx *Context
+}
+
+func newURLFetch(ctx *Context) *URLFetch {
+    m := &URLFetch{}
+    m.ctx = ctx
+    return m
+}
+
+func (uf *URLFetch) Get(url string, headers ...map[string]string) (string, error) {
+	if uf.ctx.config.GAE {
+		client := urlfetch.Client(uf.ctx.ctx)
+		resp, err := client.Get(url)
+		if err != nil {
+		     return "", err
+		}
+		defer resp.Body.Close()
+
+		data, err := ioutil.ReadAll(resp.Body) //<--- here!
+		if err != nil {
+		     return "", err
+		}
+		return string(data), nil
+	}
+	reader := strings.NewReader("")
+	request, err := http.NewRequest("GET", url, reader)
+	for i := 0; i < len(headers); i++ {
+		for k, v := range headers[i] {
+			request.Header.Add(k, v)
+		}
+	}
+	if err != nil {
+		return "", err
+	}
+	client := &http.Client{}
+	resp, err := client.Do(request)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	bodyResp, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return "", err
+	}
+	result := string(bodyResp[:])
+	return result, nil
+}
+
+
+func (uf *URLFetch) Post(url string, body string, headers ...map[string]string) (string, error) {
+	reader := strings.NewReader(body)
+	if uf.ctx.config.GAE {
+		client := urlfetch.Client(uf.ctx.ctx)
+		contentType := ""
+		// if _, ok := headers["Content-Type"]; ok {
+			// contentType = headers["Content-Type"]
+		// }
+		resp, err := client.Post(url, contentType, reader)
+		if err != nil {
+		     return "", err
+		}
+		defer resp.Body.Close()
+
+		data, err := ioutil.ReadAll(resp.Body) //<--- here!
+		if err != nil {
+		     return "", err
+		}
+		return string(data), nil
+	}
+
+	request, err := http.NewRequest("POST", url, reader)
+	for i := 0; i < len(headers); i++ {
+		for k, v := range headers[i] {
+			request.Header.Add(k, v)
+		}
+	}
+	if err != nil {
+		return "", err
+	}
+	client := &http.Client{}
+	resp, err := client.Do(request)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	bodyResp, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return "", err
+	}
+	result := string(bodyResp[:])
+	return result, nil
+}
+
+// ctx := appengine.NewContext(r)
+
+/*
+package main
+
+
+func main() {
+	reader := strings.NewReader(`{"body":123}`)
+	request, err := http.NewRequest("GET", "http://vnexpress.net/", reader)
+	// TODO: check err
+	if err != nil {
+		fmt.Println(err)
+	} else {
+		client := &http.Client{}
+		resp, err := client.Do(request)
+		if err != nil {
+			fmt.Println(err)
+		} else {
+			fmt.Println(resp)
+		}
+	}
+}
+*/

@@ -1,0 +1,625 @@
+package jr
+
+import (
+	"google.golang.org/appengine/datastore"
+	"reflect"
+	"strconv"
+	// "golang.org/x/net/context"
+)
+
+// type GAEDO struct {
+// 	key datastore.Key
+// }
+
+type IGAEDO interface {
+	Key(id ...*datastore.Key) *datastore.Key
+	Id() interface{}
+}
+
+type IGAEModel interface {
+	Load(p []datastore.Property) error
+	Save() ([]datastore.Property, error)
+}
+
+type GAEDO struct {
+	key *datastore.Key
+}
+
+func (d *GAEDO) Key(k ...*datastore.Key) *datastore.Key {
+	if len(k) > 0 {
+		d.key = k[0]
+	}
+	return d.key
+}
+
+func (d *GAEDO) Id() interface{} {
+	iid := d.key.IntID()
+	if iid != 0 {
+		return iid
+	}
+	return d.key.StringID()
+}
+
+func (d *GAEDO) StringId() string {
+	iid := d.key.IntID()
+	var sid string
+	if iid == 0 {
+		sid = d.key.StringID()
+	} else {
+		sid = strconv.FormatInt(iid, 10)
+	}
+	return sid
+}
+
+func ToDOMap(c *Context, o interface{}) map[string]interface{} {
+	m := map[string]interface{}{}
+	m["id"] = o.(IGAEDO).Id()
+	val := reflect.ValueOf(o).Elem()
+	for i := 0; i < val.NumField(); i++ {
+		typeField := val.Type().Field(i)
+		if typeField.Name == "GAEDO" {
+			continue
+		}
+		valueField := val.Field(i)
+		tag := typeField.Tag
+		m[tag.Get("json")] = valueField.Interface()
+		// c.Log.Info("Field Name: %s,\t Field Value: %v,\t Tag Value: %s\n", typeField.Name, valueField.Interface(), tag.Get("json"))
+	}
+	return m
+}
+
+/*
+Note ko xoa
+Tai sao DO lai la &data con interface thi khong co vi interface la object
+*/
+type GAEDatastore struct {
+	c *Context
+}
+
+func (d *GAEDatastore) Disconnect() error {
+	// d.c.ILog(" datastore", "disconnect")
+	return nil
+}
+func (d *GAEDatastore) Connect(connect ...string) error {
+	// d.c.ILog(" datastore", "connect")
+	return nil
+}
+
+// var CX *Context
+/*
+func (d *GAEDatastore) NewKey(kind, id string) IKey { //, parent IKey
+    // var parent *datastore.Key
+    var key *datastore.Key
+    if intID, err := strconv.Atoi(id); err == nil {
+        key = datastore.NewKey(d.c.ctx, kind, "", int64(intID), nil)
+    } else {
+        key = datastore.NewKey(d.c.ctx, kind, id, 0, nil)
+    }
+    return key
+}
+func (d *GAEDatastore) NewIncompleteKey(kind string) IKey {
+    key := datastore.NewIncompleteKey(d.c.ctx, kind, nil)
+    return key
+}
+
+func (d *GAEDatastore) DecodeKey(encoded string) (IKey, error) {
+    return datastore.DecodeKey(encoded)
+}
+*/
+// func (d *GAEDatastore) NewQuery(name string) map[string]interface{} {
+//     return datastore.NewQuery(name)
+// }
+
+func (d *GAEDatastore) getKey(collection string, id ...interface{}) *datastore.Key { //, parent IKey
+	var key *datastore.Key
+	if len(id) == 1 {
+		if idString, ok := id[0].(string); ok {
+			key = datastore.NewKey(d.c.ctx, collection, idString, 0, nil)
+		} else if idInt64, ok := id[0].(int64); ok {
+			key = datastore.NewKey(d.c.ctx, collection, "", idInt64, nil)
+		} else if idInt, ok := id[0].(int); ok {
+			key = datastore.NewKey(d.c.ctx, collection, "", int64(idInt), nil)
+		}
+	} else {
+		key = datastore.NewIncompleteKey(d.c.ctx, collection, nil)
+		// d.c.ILog("NewIncompleteKey", key)
+	}
+	return key
+}
+
+func (d *GAEDatastore) getQuery(collection string, selector map[string]interface{}) *datastore.Query {
+	q := datastore.NewQuery(collection)
+	useCursor := false
+	var cursorName string
+	var cursorPage int
+	mc := d.c.Memcache()
+	for k, v := range selector {
+		switch k {
+		case "$offset":
+			if offset, ok := v.(int); ok {
+				q = q.Offset(offset)
+			}
+		case "$limit":
+			if limit, ok := v.(int); ok {
+				q = q.Limit(limit)
+			}
+		case "$sort":
+			if order, ok := v.(string); ok {
+				q = q.Order(order)
+			} else if orders, ok := v.([]string); ok {
+				for i := 0; i < len(orders); i++ {
+					q = q.Order(orders[i])
+				}
+			}
+		case "$project":
+			if projects, ok := v.([]string); ok {
+				q = q.Project(projects...)
+			}
+		case "$keysonly":
+			q = q.KeysOnly()
+		case "$distinct":
+			q = q.Distinct()
+		case "$cursor":
+			cursorPattern, ok := v.([]interface{})
+			if !ok {
+				break
+			}
+			// cursorName, ok := cursorPattern[0].(string) dau : o day thi se tao mot bien moi local, theng tao ngon ngu ngu lo
+			cursorName, ok = cursorPattern[0].(string)
+			// d.c.ILog("cursorName0", cursorName)
+			if !ok {
+				break
+			}
+			cursorPage, ok = cursorPattern[1].(int)
+			// d.c.ILog("cursorPage0", cursorPage)
+			if !ok {
+				break
+			}
+			useCursor = true
+			cursorKey := cursorName + "--" + strconv.Itoa(cursorPage)
+			// d.c.ILog("cursorKey0", cursorKey)
+			cursorString := ""
+			err := mc.Get(cursorKey, &cursorString)
+			if err != nil {
+				cursorPage = 1
+				d.c.ELog(err)
+				break
+			}
+			cursor, err := datastore.DecodeCursor(cursorString)
+			if err != nil {
+				cursorPage = 1
+				d.c.ELog(err)
+				break
+			}
+			q = q.Start(cursor)
+		default:
+			q = q.Filter(k, v)
+		}
+	}
+	if useCursor {
+		cursorPage++
+		cursorKey := cursorName + "--" + strconv.Itoa(cursorPage)
+		cursorString := ""
+		err := mc.Get(cursorKey, &cursorString)
+		if err != nil {
+			t := q.Run(d.c.ctx)
+			for {
+				_, err := t.Next(nil)
+				if err == datastore.Done {
+					break
+				}
+			}
+			if cursor, err := t.Cursor(); err == nil {
+				err = mc.Set(cursorKey, cursor.String(), d.c.config.DefaultCacheTime)
+				if err != nil {
+					d.c.ELog(err)
+				}
+			}
+		}
+	}
+	return q
+}
+
+func (d *GAEDatastore) Find(collection string, id interface{}, dst interface{}) error {
+	key := d.getKey(collection, id)
+	d.c.ILog("1", key)
+	if err := datastore.Get(d.c.ctx, key, dst); err != nil {
+		d.c.ELog(err)
+		return err
+	}
+	dst.(IGAEDO).Key(key)
+	return nil
+}
+
+func (d *GAEDatastore) FindAll(collection string, selector map[string]interface{}, dst interface{}) error {
+	q := d.getQuery(collection, selector)
+
+	// var (
+	// 	dv               reflect.Value
+	// 	mat              multiArgType
+	// 	elemType         reflect.Type
+	// 	errFieldMismatch error
+	// )
+	// if !q.keysOnly {
+	// 	dv = reflect.ValueOf(dst)
+	// 	if dv.Kind() != reflect.Ptr || dv.IsNil() {
+	// 		return ErrInvalidEntityType
+	// 	}
+	// 	dv = dv.Elem()
+	// 	mat, elemType = checkMultiArg(dv)
+	// 	if mat == multiArgTypeInvalid || mat == multiArgTypeInterface {
+	// 		return ErrInvalidEntityType
+	// 	}
+	// }
+
+	// var keys []*datstore.Key
+	// for t := q.Run(c); ; {
+	// 	k, e, err := t.next()
+	// 	if err == Done {
+	// 		break
+	// 	}
+	// 	if err != nil {
+	// 		return err
+	// 	}
+	// 	if !q.keysOnly {
+	// 		ev := reflect.New(elemType)
+	// 		if elemType.Kind() == reflect.Map {
+	// 			// This is a special case. The zero values of a map type are
+	// 			// not immediately useful; they have to be make'd.
+	// 			//
+	// 			// Funcs and channels are similar, in that a zero value is not useful,
+	// 			// but even a freshly make'd channel isn't useful: there's no fixed
+	// 			// channel buffer size that is always going to be large enough, and
+	// 			// there's no goroutine to drain the other end. Theoretically, these
+	// 			// types could be supported, for example by sniffing for a constructor
+	// 			// method or requiring prior registration, but for now it's not a
+	// 			// frequent enough concern to be worth it. Programmers can work around
+	// 			// it by explicitly using Iterator.Next instead of the Query.GetAll
+	// 			// convenience method.
+	// 			x := reflect.MakeMap(elemType)
+	// 			ev.Elem().Set(x)
+	// 		}
+	// 		if err = loadEntity(ev.Interface(), e); err != nil {
+	// 			if _, ok := err.(*ErrFieldMismatch); ok {
+	// 				// We continue loading entities even in the face of field mismatch errors.
+	// 				// If we encounter any other error, that other error is returned. Otherwise,
+	// 				// an ErrFieldMismatch is returned.
+	// 				errFieldMismatch = err
+	// 			} else {
+	// 				return err
+	// 			}
+	// 		}
+	// 		if mat != multiArgTypeStructPtr {
+	// 			ev = ev.Elem()
+	// 		}
+	// 		dv.Set(reflect.Append(dv, ev))
+	// 	}
+
+	// 	// keys = append(keys, k)
+	// }
+	// return errFieldMismatch
+
+	keys, err := q.GetAll(d.c.ctx, dst)
+	if err != nil {
+		d.c.ELog(err)
+		return err
+	}
+	d.c.ILog("keys", keys)
+
+	val := reflect.ValueOf(dst)
+
+	ele := val.Elem()
+	// for i := 0; i < val.NumField(); i++ {
+	// typeField := val.Type().Field(i)
+
+	d.c.ILog("dst", ele)
+	d.c.ILog("dst", ele.Type())
+	d.c.ILog("dst", ele.Kind())
+	for i := 0; i < (*val).Len(); i++ {
+		d.c.ILog("dst", (*val).Index(i))
+		// sv.Index(i).Set(vv)
+	}
+
+	// if _, ok := dst.([]main.T); ok {
+	// for i := range *dst { // dereferencing the pointer to get the actual slice
+	// class := classes[i]
+
+	// }
+	// for i, j := 0, len(*dst.([]interface{})); i < j; i++ {
+	// (*dst).([]interface{})[i].(IGAEDO).Key(keys[i])
+	// }
+	// }
+
+	// tmp := &dst
+
+	// if _, ok := dst.([]IGAEDO); ok {
+	// }
+	// 	dst.([]interface{})[i].(IGAEDO).Key(keys[i])
+	// }
+	return nil
+}
+
+func (d *GAEDatastore) InsertAll(collection string, docs ...interface{}) error {
+	for i := 0; i < len(docs); i++ {
+		d.Insert(collection, docs[i])
+	}
+	return nil
+}
+
+func (d *GAEDatastore) keyToString(key *datastore.Key) string {
+	iid := key.IntID()
+	var sid string
+	if iid == 0 {
+		sid = key.StringID()
+	} else {
+		sid = strconv.FormatInt(iid, 10)
+	}
+	return sid
+}
+
+func (d *GAEDatastore) Insert(collection string, doc interface{}, id ...interface{}) error {
+	key := d.getKey(collection, id...)
+	if len(id) == 1 {
+		doc.(IGAEDO).Key(key)
+	}
+	key, err := datastore.Put(d.c.ctx, key, doc)
+	if err != nil {
+		// d.c.ILog("1", key)
+		// d.c.ILog("1", doc)
+		d.c.ELog(err)
+		return err
+	}
+	if len(id) == 0 {
+		doc.(IGAEDO).Key(key)
+		// doc.(IGAEDO).SetID(d.keyToString(key))
+		// _, err = datastore.Put(d.c.ctx, key, doc)
+		// if err != nil {
+		// d.c.ELog(err)
+		// return err
+		// }
+	}
+	return nil
+}
+
+func (d *GAEDatastore) Update(collection string, doc interface{}, id ...interface{}) error {
+	var key *datastore.Key
+	if len(id) > 0 {
+		key = d.getKey(collection, id[0])
+	} else {
+		key = doc.(IGAEDO).Key()
+	}
+	key, err := datastore.Put(d.c.ctx, key, doc)
+	if err != nil {
+		d.c.ELog(err)
+		return err
+	}
+	return nil
+}
+
+func (d *GAEDatastore) UpdateAll(collection string, selector map[string]interface{}, doc interface{}) error {
+	// _, err = datastore.PutMulti(ctx, []*datastore.Key{k1, k2, k3}, []interface{}{e1, e2, e3})
+	return nil
+}
+
+func (d *GAEDatastore) Upsert(collection string, doc interface{}) error {
+	// id := doc.(IGAEDO).GetID()
+	// var err error
+	// if id == "" {
+	// 	err = d.Insert(collection, doc)
+	// } else {
+	// 	err = d.Update(collection, doc, id)
+	// }
+	// if err != nil {
+	// 	return err
+	// }
+	return nil
+}
+
+func (d *GAEDatastore) Remove(collection string, id interface{}) error {
+	// var key *datastore.Key
+	// if len(id) > 0 {
+	// 	key = d.getKey(collection, id[0])
+	// } else {
+	// 	key = doc.(IGAEDO).Key()
+	// }
+	key := d.getKey(collection, id)
+	err := datastore.Delete(d.c.ctx, key)
+	if err != nil {
+		d.c.ELog(err)
+		return err
+	}
+	return nil
+}
+
+func (d *GAEDatastore) RemoveAll(collection string, selector map[string]interface{}) error {
+	return nil
+}
+
+/*
+func (d *GAEDatastore) FindByKey(key IKey, id string) (DO) {
+    key := new(datastore.Key)
+    rs := make(DO) // DO is not a struct, it is a map
+    rs["$id"] = id
+    rs["$key"] = key.Encode()
+    if intID, err := strconv.Atoi(id); err == nil {
+        key = datastore.NewKey(d.c.ctx, name, "", int64(intID), nil)
+    } else {
+        key = datastore.NewKey(d.c.ctx, name, id, 0, nil)
+    }
+    if err := datastore.Get(d.c.ctx, key, &rs); err != nil {
+        d.c.Log.Error("DATASTORE %v", err)
+    }
+    return rs
+}
+
+func (d *GAEDatastore) GetAll(q *datastore.Query) ([]DO) {
+    rs := make([]DO, 0)
+    keys, err := q.GetAll(d.c.ctx, &rs)
+    if err != nil {
+        d.c.Log.Error("DATASTORE %v", err)
+    }
+    // d.c.Log.Print("rs", rs)
+    for i := 0; i < len(rs); i++ {
+        rs[i]["$key"] = keys[i].Encode()
+        rs[i]["$id"] = keys[i].IntID()
+        if rs[i]["$id"].(int64) == 0 {
+            rs[i]["$id"] = keys[i].StringID()
+        // } else {
+            // rs[i]["_id"] = strconv.FormatInt(rs[i]["_id"], 10)
+        }
+    }
+    return rs
+}
+
+func (d *GAEDatastore) GetByKey(name string, keystring string) (DO) {
+    // key := new(datastore.Key)
+    rs := make(DO) // DO is not a struct, it is a map
+    // rs["$id"] = id
+    key, err := d.DecodeKey(keystring)
+    if err != nil {
+        return rs
+    }
+    // if intID, err := strconv.Atoi(id); err == nil {
+        // key = datastore.NewKey(d.c.ctx, name, "", int64(intID), nil)
+    // } else {
+        // key = datastore.NewKey(d.c.ctx, name, id, 0, nil)
+    // }
+    if err := datastore.Get(d.c.ctx, key, &rs); err != nil {
+        d.c.Log.Error("DATASTORE %v", err)
+    } else {
+        rs["$key"] = keystring
+    }
+    return rs
+}
+
+func (d *GAEDatastore) GetKeysOnly(q *datastore.Query) ([]DO) {
+    rs := make([]DO, 0)
+    keys, err := q.GetAll(d.c.ctx, nil)
+    if err != nil {
+        d.c.Log.Error("DATASTORE %v", err)
+    }
+    for i := 0; i < len(keys); i++ {
+        rs = append(rs, DO{})
+        rs[i]["$key"] = keys[i].Encode()
+        rs[i]["$id"] = keys[i].IntID()
+        if rs[i]["$id"].(int64) == 0 {
+            rs[i]["$id"] = keys[i].StringID()
+        }
+    }
+    return rs
+}
+
+func (d *GAEDatastore) GetO(name string, id string, rs interface{}) {
+    key := new(datastore.Key)
+    if intID, err := strconv.Atoi(id); err == nil {
+        key = datastore.NewKey(d.c.ctx, name, "", int64(intID), nil)
+    } else {
+        key = datastore.NewKey(d.c.ctx, name, id, 0, nil)
+    }
+    if err := datastore.Get(d.c.ctx, key, &rs); err != nil {
+        d.c.Log.Error("DATASTORE %v", err)
+    }
+}
+
+func (d *GAEDatastore) GetAllO(q *datastore.Query, rs interface{}) {
+    _, err := q.GetAll(d.c.ctx, &rs)
+    if err != nil {
+        d.c.Log.Error("DATASTORE GETALLO %v", err)
+    }
+}
+
+func (d *GAEDatastore) Put(kind string, data DO) {
+    k := datastore.NewIncompleteKey(d.c.ctx, kind, nil)
+    key, err := datastore.Put(d.c.ctx, k, &data)
+    d.c.Log.Info("%v %v", key, err)
+    data["$key"] = key
+    // data["_id"] = strconv.FormatInt(key.IntID(), 10)
+}
+
+type PageO struct {
+    Name string
+    Content string
+    Status bool
+    // LastEdited time.Time
+}
+
+func (d *GAEDatastore) PutA() {
+    page := PageO{}
+    page.Name = "abc"
+    page.Content = ""
+    page.Status = true
+
+    k := datastore.NewIncompleteKey(d.c.ctx, "PageO", nil)
+    _, err := datastore.Put(d.c.ctx, k, &page)
+    if err != nil {
+        d.c.Log.Error("DATASTORE PUTA %v", err)
+    }
+}
+
+func (d *GAEDatastore) GetA() []PageO {
+    rs := make([]PageO, 0)
+
+    q := datastore.NewQuery("PageO").Project("Name")
+    _, err := q.GetAll(d.c.ctx, &rs)
+    if err != nil {
+        d.c.Log.Error("DATASTORE GETA %v", err)
+    }
+    // d.c.Log.Error("DATASTORE GETA %v", rs)
+    return rs
+}
+
+func (d *GAEDatastore) PutO(kind string, data interface{}) {
+    k := datastore.NewIncompleteKey(d.c.ctx, kind, nil)
+    _, err := datastore.Put(d.c.ctx, k, &data)
+    if err != nil {
+        d.c.Log.Error("DATASTORE PUTO %v", err)
+    }
+    //
+    // d.c.Log.Info("%v %v", key, err)
+    // data["$key"] = key
+    // data["_id"] = strconv.FormatInt(key.IntID(), 10)
+}
+
+func (d *GAEDatastore) PutOWithKey(key *datastore.Key, data interface{}) {
+    if _, err := datastore.Put(d.c.ctx, key, data); err != nil {
+        d.c.Log.Error("DATASTORE %v", err)
+    }
+}
+
+func (d *GAEDatastore) PutWithId(kind string, id string, data DO) {
+    key := datastore.NewKey(d.c.ctx, kind, id, 0, nil)
+    if _, err := datastore.Put(d.c.ctx, key, &data); err != nil {
+        d.c.Log.Error("DATASTORE %v", err)
+    }
+    data["$key"] = key
+}
+
+func (d *GAEDatastore) PutWithIntId(kind string, id int, data DO) {
+    key := datastore.NewKey(d.c.ctx, kind, "", int64(id), nil)
+    if _, err := datastore.Put(d.c.ctx, key, &data); err != nil {
+        d.c.Log.Error("DATASTORE %v", err)
+    }
+    data["$key"] = key
+}
+
+func (d *GAEDatastore) PutWithKey(key *datastore.Key, data DO) *datastore.Key {
+    if _, err := datastore.Put(d.c.ctx, key, &data); err != nil {
+        d.c.Log.Error("DATASTORE %v", err)
+    }
+    data["$key"] = key
+    return key
+}
+
+
+
+func (d *GAEDatastore) Delete(name string, id string) {
+    key := datastore.NewKey(d.c.ctx, name, id, 0, nil)
+    if err := datastore.Delete(d.c.ctx, key); err != nil {
+        d.c.Log.Error("DATASTORE %v", err)
+    }
+}
+
+func (d *GAEDatastore) DecodeKey(encoded string) (*datastore.Key, error) {
+    return datastore.DecodeKey(encoded)
+}
+*/

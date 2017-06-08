@@ -1,0 +1,118 @@
+package main
+
+import "fmt"
+import "strings"
+
+func main() {
+	x := "/:category/:name"
+	s := strings.Split(x, "/:")
+
+//	i := strings.Index(x, "@")
+	fmt.Println("%v ", s)
+	start := 0
+	route := ""
+	if strings.Index(s[0], "/") == 0 {
+		route = s[0]
+	} else {
+		route =  "/"
+		start = 1
+	}
+	fmt.Println("start", start)
+	fmt.Println("route", route)
+	params := make([]string, 0)
+	if len(s) > 0 {
+		for i, p := range s {
+
+			if i < start {
+				continue
+			}
+			fmt.Println(i, p)
+			params = append(params, p)
+		}
+	}
+		fmt.Println("param", params, params[1])
+	//chars := x[:i]
+	//arefun := x[i+1:]
+	//fmt.Println(chars)
+	//fmt.Println(arefun)
+		cparam := make(map[string]string)
+	url := "/"
+	tmp := strings.Index(url, route)
+
+		if tmp == 0 {
+			s := strings.Split(url[tmp+1:], "/")
+				fmt.Println("s", s)
+			if len(s) > 0 {
+				for i, p := range s {
+				fmt.Println(i, p)
+					cparam[params[i]] = p
+				}
+			}
+
+		}
+		fmt.Println("cparam", cparam)
+
+}
+
+
+
+
+
+
+
+
+
+
+
+
+package main
+
+import (
+    "github.com/streadway/amqp"
+
+    "os"
+    "fmt"
+    "time"
+)
+
+func main() {
+    url := os.Getenv("CLOUDAMQP_URL")
+    if url == "" {
+        url = "amqp://localhost"
+    }
+    connection, _ := amqp.Dial(url)
+    defer connection.Close()
+    go func(con *amqp.Connection) {
+        channel, _ := connection.Channel()
+        defer channel.Close()
+        durable, exclusive := false, false
+        autoDelete, noWait := true, true
+        q, _ := channel.QueueDeclare("test", durable, autoDelete, exclusive, noWait, nil)
+        channel.QueueBind(q.Name, "#", "amq.topic", false, nil)
+        autoAck, exclusive, noLocal, noWait := false, false, false, false
+        messages, _ := channel.Consume(q.Name, "", autoAck, exclusive, noLocal, noWait, nil)
+        multiAck := false
+        for msg := range messages {
+            fmt.Println("Body:", string(msg.Body), "Timestamp:", msg.Timestamp)
+            msg.Ack(multiAck)
+        }
+    }(connection)
+
+    go func(con *amqp.Connection) {
+        timer := time.NewTicker(1 * time.Second)
+        channel, _ := connection.Channel()
+
+        for t := range timer.C {
+            msg := amqp.Publishing{
+                DeliveryMode: 1,
+                Timestamp:    t,
+                ContentType:  "text/plain",
+                Body:         []byte("Hello world"),
+            }
+            mandatory, immediate := false, false
+            channel.Publish("amq.topic", "ping", mandatory, immediate, msg)
+        }
+    }(connection)
+
+    select {}
+}
