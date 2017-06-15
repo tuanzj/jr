@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	// "net/url"
+	// "github.com/gorilla/websocket"
 	"strings"
 )
 
@@ -109,6 +110,22 @@ func (c *Context) ELog(arg interface{}) {
 
 func (c *Context) Method() string {
 	return c.Request.Method
+}
+
+func (c *Context) WS(readBufferSize, writeBufferSize int, CORS bool) *WS {
+	// var upgrader = websocket.Upgrader{
+	// 	ReadBufferSize:  readBufferSize,
+	// 	WriteBufferSize: writeBufferSize,
+	// 	CheckOrigin: func(r *http.Request) bool {
+	// 		return CORS
+	// 	},
+	// }
+	// return upgrader.Upgrade(c.Response, c.Request, nil)
+	return newWS(c, readBufferSize, writeBufferSize, CORS)
+	// if err != nil {
+	// c.ELog(err)
+	// }
+	// return conn
 }
 
 func (c *Context) SetHeader(name string, content string) {
